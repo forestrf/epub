@@ -26,10 +26,18 @@
 				<td>
 					Multiplicar el tamaño de fuente por este número<br/>
 					Ejemplo: Si la fuente vale 30, 2 hará que sea 60 de grande (el doble)<br/>
-					Ejemplo: Si la fuente vale 30, 0.5 hará que sea 15 de grande (la mitad)<br/>
+					Ejemplo: Si la fuente vale 30, 0.5 hará que sea 15 de grande (la mitad)
 				</td>
 				<td>
 					<input type="number" id="fontSizeMultiplier" value="1.5" step="0.1"/>
+				</td>
+			</tr>
+			<tr>
+				<td>
+					Incrustar CSS en línea (para ebooks que no leen cascadas de estilo externas)
+				</td>
+				<td>
+					<input type="checkbox" id="inlineCss" checked/>
 				</td>
 			</tr>
 			<tr>
@@ -81,39 +89,105 @@
 			document.getElementById("files").addEventListener("change", handleFileSelect, false);
 
 
+			var fontSizeText = [
+				[ "xx-small", "0.5em" ],
+				[ "x-small", "0.625em" ],
+				[ "small", "0.833em" ],
+				[ "medium", "1em" ],
+				[ "large", "1.125em" ],
+				[ "x-large", "1.5em" ],
+				[ "xx-large", "2em" ]
+			];
+
 			function IncreaseFont(zip) {
-				var fontSizeMultiplier = +document.getElementById("fontSizeMultiplier").value;
-				console.log("Wanted font size multiplier: " + fontSizeMultiplier);
+				var inline = document.getElementById("inlineCss").checked;
 
 				var files = [];
+				var css = [];
 				zip.forEach(function (relativePath, file) {
 					if (file.dir) return;
-					files.push(relativePath);
+					var arr = relativePath.endsWith(".css") ? css : files;
+					arr.push(relativePath);
 				});
 
+				var cssInlined = "";
+
 				var promise = new Promise(function(resolve, reject) {
-					function ProcessNext(relativePath) {
+
+					function ProcessNextCss(relativePath) {
 						console.log(relativePath);
 						zip.file(relativePath).async("text").then(function (txt) {
 							if (txt.indexOf("font-size") != -1) {
-								txt = txt.replace(/font-size.*?:.*?([0-9\.]+)/g, function (match, p1) {
-									return "font-size: " + (+p1 * fontSizeMultiplier);
-								});
+								console.log("antes", txt);
+
+								txt = FixTxt(txt);
+
+								console.log("después", txt);
+								console.log("Fuente actualizada en ", relativePath);
+								zip.file(relativePath, txt);
+
+								cssInlined += "<style>" + txt + "</style>";
+							}
+							if (css.length > 0) {
+								ProcessNextCss(css.pop());
+							} else {
+								ProcessNextNonCss(files.pop());
+							}
+						});
+					}
+
+					function ProcessNextNonCss(relativePath) {
+						console.log(relativePath);
+						zip.file(relativePath).async("text").then(function (txt) {
+							if (txt.indexOf("font-size") == -1 && cssInlined == "") {
+								txt = txt.replace("<head>", "<head><style>body { font-size: 1em; }</style>");
+							}
+							if (txt.indexOf("<body") != -1) {
+								console.log("antes", txt);
+
+								txt = FixTxt(txt);
+
+								if (inline) {
+									txt = txt.replace(/<link.*?stylesheet.*?>/g, cssInlined);
+								}
+
+								console.log("después", txt);
 								console.log("Fuente actualizada en ", relativePath);
 								zip.file(relativePath, txt);
 							}
 							if (files.length > 0) {
-								ProcessNext(files.pop());
+								ProcessNextNonCss(files.pop());
 							} else {
 								resolve(zip);
 							}
 						});
 					}
 
-					ProcessNext(files.pop());
+					if (css.length > 0) {
+						ProcessNextCss(css.pop());
+					}
+					else {
+						ProcessNextNonCss(files.pop());
+					}
 				});
 
 				return promise;
+			}
+
+			function FixTxt(txt) {
+				var fontSizeMultiplier = +document.getElementById("fontSizeMultiplier").value;
+				console.log("Wanted font size multiplier: " + fontSizeMultiplier);
+
+				for (var i = 0; i < fontSizeText.length; i++) {
+					var r = new RegExp("font-size.*?:.*?" + fontSizeText[i][0], "g");
+					txt = txt.replace(r, "font-size: " + fontSizeText[i][1]);
+				}
+
+				txt = txt.replace(/font-size.*?:.*?([0-9\.]+)/g, function (match, p1) {
+					return "font-size: " + (+p1 * fontSizeMultiplier);
+				});
+				
+				return txt;
 			}
 		</script>
 	</body>
