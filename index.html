@@ -1,0 +1,120 @@
+<html>
+	<head>
+		<meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/>
+		<title>EPUB font resizer</title>
+		<style>
+			body {
+				background: #000;
+				color: #eee;
+			}
+			td {
+				border: 1px solid #666;
+				padding: 10px;
+			}
+			#files {
+				border-radius: 10px;
+				box-shadow: 0px 0px 5px 5px #555;
+				background: #555;
+				padding: 20px;
+				border: 3px dashed #eee;
+			}
+		</style>
+	</head>
+	<body>
+		<table>
+			<tr>
+				<td>
+					Multiplicar el tamaño de fuente por este número<br/>
+					Ejemplo: Si la fuente vale 30, 2 hará que sea 60 de grande (el doble)<br/>
+					Ejemplo: Si la fuente vale 30, 0.5 hará que sea 15 de grande (la mitad)<br/>
+				</td>
+				<td>
+					<input type="number" id="fontSizeMultiplier" value="1.5" step="0.1"/>
+				</td>
+			</tr>
+			<tr>
+				<td>
+					Arrastra uno o más EPUB en el botón de la derecha
+				</td>
+				<td>
+					<input type="file" id="files" name="files[]" multiple/>
+				</td>
+			</tr>
+		</table>
+
+
+		<script>module = { exports: null }</script>
+		<script src="FileSaver.min.js"></script>
+		<script src="jszip.min.js"></script>
+		<script>
+			// Check for the various File API support.
+			if (window.File && window.FileReader && window.FileList && window.Blob) {
+				// Great success! All the File APIs are supported.
+			} else {
+				alert('The File APIs are not fully supported in this browser.');
+			}
+
+			function handleFileSelect(evt) {
+				var files = evt.target.files;
+
+				for (var i = 0, f; f = files[i]; i++) {
+					var reader = new FileReader();
+					reader.onload = (function(theFile) {
+						return function(e) {
+							var zip = new JSZip();
+							zip.loadAsync(e.target.result).then(function(zip) {
+								IncreaseFont(zip).then(function(zip) {
+									zip.generateAsync({
+										type: "blob",
+										compression: "DEFLATE"
+									}).then(function (blob) {
+										saveAs(blob, theFile.name);
+									});
+								});
+							});
+						}
+					})(f);
+					reader.readAsBinaryString(f);
+				}
+			}
+
+			document.getElementById("files").addEventListener("change", handleFileSelect, false);
+
+
+			function IncreaseFont(zip) {
+				var fontSizeMultiplier = +document.getElementById("fontSizeMultiplier").value;
+				console.log("Wanted font size multiplier: " + fontSizeMultiplier);
+
+				var files = [];
+				zip.forEach(function (relativePath, file) {
+					if (file.dir) return;
+					files.push(relativePath);
+				});
+
+				var promise = new Promise(function(resolve, reject) {
+					function ProcessNext(relativePath) {
+						console.log(relativePath);
+						zip.file(relativePath).async("text").then(function (txt) {
+							if (txt.indexOf("font-size") != -1) {
+								txt = txt.replace(/font-size.*?:.*?([0-9\.]+)/g, function (match, p1) {
+									return "font-size: " + (+p1 * fontSizeMultiplier);
+								});
+								console.log("Fuente actualizada en ", relativePath);
+								zip.file(relativePath, txt);
+							}
+							if (files.length > 0) {
+								ProcessNext(files.pop());
+							} else {
+								resolve(zip);
+							}
+						});
+					}
+
+					ProcessNext(files.pop());
+				});
+
+				return promise;
+			}
+		</script>
+	</body>
+</html>
